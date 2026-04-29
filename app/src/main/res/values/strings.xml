@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Long Exposure Cam</string>
+
+    <!-- Labels -->
+    <string name="label_exposure">Exposure Time</string>
+    <string name="label_iso">ISO</string>
+
+    <!-- Buttons -->
+    <string name="btn_capture">📷  Capture</string>
+
+    <!-- Status messages -->
+    <string name="status_ready">Ready — adjust exposure and ISO, then capture</string>
+    <string name="capturing_status">Capturing… (%1$s exposure)</string>
+    <string name="image_saved">✓ Image saved to DCIM/LongExposure</string>
+    <string name="capture_failed">✗ Capture failed — try again</string>
+
+    <!-- Errors -->
+    <string name="camera_permission_required">Camera permission is required to use this app</string>
+    <string name="no_camera_found">No back-facing camera found on this device</string>
+</resources>
