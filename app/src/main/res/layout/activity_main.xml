@@ -103,6 +103,43 @@
             android:progressTint="@color/accent"
             android:thumbTint="@color/accent" />
 
+        <!-- Frame Count row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/label_frame_count"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tvFrameCountValue"
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="@color/accent"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:text="16" />
+        </LinearLayout>
+
+        <SeekBar
+            android:id="@+id/seekBarFrameCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:max="3"
+            android:progress="2"
+            android:progressTint="@color/accent"
+            android:thumbTint="@color/accent" />
+
         <!-- Status text -->
         <TextView
             android:id="@+id/tvStatus"
@@ -111,19 +148,53 @@
             android:gravity="center"
             android:textColor="@color/text_secondary"
             android:textSize="13sp"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="8dp"
             android:text="@string/status_ready" />
 
-        <!-- Capture button -->
-        <Button
-            android:id="@+id/btnCapture"
+        <!-- Burst progress bar (hidden until a burst is active) -->
+        <ProgressBar
+            android:id="@+id/progressBurst"
+            style="?attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="@string/btn_capture"
-            android:textSize="16sp"
-            android:textColor="@color/on_accent"
-            android:backgroundTint="@color/accent"
-            android:stateListAnimator="@null" />
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:progressTint="@color/accent"
+            android:visibility="gone" />
+
+        <!-- Buttons row: single-shot capture + burst stack -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <!-- Single-shot JPEG capture -->
+            <Button
+                android:id="@+id/btnCapture"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="@string/btn_capture"
+                android:textSize="14sp"
+                android:textColor="@color/on_accent"
+                android:backgroundTint="@color/accent"
+                android:stateListAnimator="@null" />
+
+            <!-- RAW burst-stack capture -->
+            <Button
+                android:id="@+id/btnBurstStack"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="@string/btn_burst_stack"
+                android:textSize="14sp"
+                android:textColor="@color/on_accent"
+                android:backgroundTint="@color/accent"
+                android:stateListAnimator="@null" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
