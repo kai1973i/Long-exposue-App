@@ -83,9 +83,12 @@ class MainActivity : AppCompatActivity() {
 
     // RAW capture support
     private var rawImageReader: ImageReader? = null
+    // DEFAULT_MIN_FRAME_DURATION_NS is used until the real value is read from CameraCharacteristics
     private var rawMinFrameDuration = DEFAULT_MIN_FRAME_DURATION_NS
-    private var cfaPattern = 0                      // RGGB default
-    private var whiteLevel = 4095                   // 12-bit default
+    // Fallback CFA pattern (0 = RGGB) and white level (4095 = 12-bit) are used when
+    // CameraCharacteristics cannot be read; they are overwritten in openCamera().
+    private var cfaPattern = 0
+    private var whiteLevel = 4095
     private var isRawSupported = false
 
     private lateinit var backgroundThread: HandlerThread
@@ -562,11 +565,11 @@ class MainActivity : AppCompatActivity() {
         // guaranteed to be cleared before the first image callback fires.
         backgroundHandler.post {
             // Drain any stale images left in the reader from prior activity
-            // before resetting the processor to avoid mixing frame sets.
-            var stale = rawReader.acquireLatestImage()
+            // one by one (acquireNextImage) to avoid resource leaks.
+            var stale = rawReader.acquireNextImage()
             while (stale != null) {
                 stale.close()
-                stale = rawReader.acquireLatestImage()
+                stale = rawReader.acquireNextImage()
             }
             BurstProcessor.reset()
 

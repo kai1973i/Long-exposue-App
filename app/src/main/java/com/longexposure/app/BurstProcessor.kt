@@ -68,7 +68,12 @@ object BurstProcessor {
      */
     fun processFrame(image: Image): Boolean {
         val plane = image.planes.firstOrNull() ?: return false
-        if (plane.pixelStride != RAW_PIXEL_STRIDE_BYTES) return false   // RAW_SENSOR must be 16-bit
+        if (plane.pixelStride != RAW_PIXEL_STRIDE_BYTES) {
+            // RAW_SENSOR must always have 2-byte (16-bit) pixels; log and skip on mismatch.
+            android.util.Log.w("BurstProcessor",
+                "Unexpected pixel stride: expected $RAW_PIXEL_STRIDE_BYTES, got ${plane.pixelStride}")
+            return false
+        }
 
         val buf = plane.buffer.apply { rewind() }
         buf.order(ByteOrder.LITTLE_ENDIAN)
