@@ -21,9 +21,13 @@ object BurstProcessor {
 
     /**
      * Maximum translational search radius in thumbnail-space pixels.
-     * In full-resolution pixels the covered range is ±(SEARCH_RADIUS × THUMB_SCALE).
+     * At 16× downscale this covers ±(SEARCH_RADIUS × 16) full-resolution pixels,
+     * which is sufficient for handheld micro-movements between consecutive frames.
      */
     private const val SEARCH_RADIUS = 3
+
+    /** RAW_SENSOR always stores one 16-bit (2-byte) value per pixel. */
+    private const val RAW_PIXEL_STRIDE_BYTES = 2
 
     // ── Accumulated state ─────────────────────────────────────────────────────
 
@@ -64,7 +68,7 @@ object BurstProcessor {
      */
     fun processFrame(image: Image): Boolean {
         val plane = image.planes.firstOrNull() ?: return false
-        if (plane.pixelStride != 2) return false   // RAW_SENSOR must be 16-bit
+        if (plane.pixelStride != RAW_PIXEL_STRIDE_BYTES) return false   // RAW_SENSOR must be 16-bit
 
         val buf = plane.buffer.apply { rewind() }
         buf.order(ByteOrder.LITTLE_ENDIAN)
@@ -113,12 +117,12 @@ object BurstProcessor {
 
         // ── Pass 2: update per-pixel maximum with alignment applied ──────────
         for (y in 0 until h) {
-            val sy = y - dy
+            val sy = y + dy    // source row in the current frame
             if (sy < 0 || sy >= h) continue
             sb.position(sy * rss)
             sb.get(rowBuf, 0, w)
             for (x in 0 until w) {
-                val sx = x - dx
+                val sx = x + dx    // source column in the current frame
                 if (sx < 0 || sx >= w) continue
                 val v = rowBuf[sx].toInt() and 0xFFFF
                 val idx = y * w + x

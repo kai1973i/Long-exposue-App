@@ -64,6 +64,15 @@ class MainActivity : AppCompatActivity() {
 
         // Frame-count options for burst stacking
         private val FRAME_COUNT_OPTIONS = intArrayOf(4, 8, 16, 32)
+
+        /** Fallback minimum frame duration when the camera does not report one (≈30 FPS). */
+        private const val DEFAULT_MIN_FRAME_DURATION_NS = 33_333_333L
+
+        /** Small overhead added to frame duration to cover sensor readout after exposure. */
+        private const val FRAME_DURATION_MARGIN_NS = 1_000_000L
+
+        /** Extra slots in the RAW ImageReader buffer beyond the max burst size. */
+        private const val IMAGE_READER_BUFFER_MARGIN = 4
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -74,7 +83,7 @@ class MainActivity : AppCompatActivity() {
 
     // RAW capture support
     private var rawImageReader: ImageReader? = null
-    private var rawMinFrameDuration = 33_333_333L   // default 30 fps
+    private var rawMinFrameDuration = DEFAULT_MIN_FRAME_DURATION_NS
     private var cfaPattern = 0                      // RGGB default
     private var whiteLevel = 4095                   // 12-bit default
     private var isRawSupported = false
@@ -297,7 +306,7 @@ class MainActivity : AppCompatActivity() {
                 val rawSize = chooseOptimalSize(rawSizes!!, 4096, 3072)
                 rawMinFrameDuration = map.getOutputMinFrameDuration(
                     ImageFormat.RAW_SENSOR, rawSize
-                ).let { if (it > 0) it else 33_333_333L }
+                ).let { if (it > 0) it else DEFAULT_MIN_FRAME_DURATION_NS }
                 cfaPattern = characteristics.get(
                     CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT
                 ) ?: 0
@@ -305,8 +314,8 @@ class MainActivity : AppCompatActivity() {
                     CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL
                 ) ?: 4095
 
-                // maxImages = largest burst size + a small margin
-                val maxImages = FRAME_COUNT_OPTIONS.last() + 4
+                // maxImages = largest burst size + margin for in-flight frames
+                val maxImages = FRAME_COUNT_OPTIONS.last() + IMAGE_READER_BUFFER_MARGIN
                 rawImageReader = ImageReader.newInstance(
                     rawSize.width, rawSize.height, ImageFormat.RAW_SENSOR, maxImages
                 ).apply {
@@ -552,12 +561,19 @@ class MainActivity : AppCompatActivity() {
         // Reset the stacking processor on the background thread so it is
         // guaranteed to be cleared before the first image callback fires.
         backgroundHandler.post {
+            // Drain any stale images left in the reader from prior activity
+            // before resetting the processor to avoid mixing frame sets.
+            var stale = rawReader.acquireLatestImage()
+            while (stale != null) {
+                stale.close()
+                stale = rawReader.acquireLatestImage()
+            }
             BurstProcessor.reset()
 
             val exposureNs = EXPOSURE_TIMES_NS[selectedExposureIndex]
             // Use the minimum possible frame duration to maximise FPS while
             // still fitting the full exposure time.
-            val frameDuration = maxOf(rawMinFrameDuration, exposureNs + 1_000_000L)
+            val frameDuration = maxOf(rawMinFrameDuration, exposureNs + FRAME_DURATION_MARGIN_NS)
 
             try {
                 val burstRequest = camera
