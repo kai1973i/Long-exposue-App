@@ -8,4 +8,8 @@
     <color name="text_secondary">#FFB0B0B0</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Info bar / overlay colors -->
+    <color name="info_bar_background">#E6000000</color>
+    <color name="overlay_dim">#99000000</color>
+    <color name="af_active">#FF00C853</color>
 </resources>
