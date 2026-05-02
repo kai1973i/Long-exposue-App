@@ -17,7 +17,6 @@ import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.core.app.ActivityCompat
@@ -38,7 +37,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.pow
 
-@OptIn(ExperimentalCamera2Interop::class)
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -454,7 +452,7 @@ class MainActivity : AppCompatActivity() {
 
         // White balance
         val wbLabels = resources.getStringArray(R.array.wb_labels)
-        val wbIdx = WB_MODE_VALUES.indexOfFirst { it == settings.wbMode }.coerceAtLeast(0)
+        val wbIdx = WB_MODE_VALUES.indexOf(settings.wbMode).coerceAtLeast(0)
         binding.tvInfoWb.text = wbLabels.getOrElse(wbIdx) { "AWB" }
 
         // Focus distance

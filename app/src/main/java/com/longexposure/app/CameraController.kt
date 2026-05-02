@@ -77,13 +77,13 @@ class CameraController(
         /** Virtual f-stop presets used for Aperture Priority simulation. */
         val APERTURE_VALUES = floatArrayOf(1.8f, 2.8f, 4.0f, 5.6f, 8.0f, 11.0f)
 
-        val WB_MODE_VALUES = intArrayOf(
-            CaptureRequest.CONTROL_AWB_MODE_AUTO,
-            CaptureRequest.CONTROL_AWB_MODE_DAYLIGHT,
-            CaptureRequest.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT,
-            CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT,
-            CaptureRequest.CONTROL_AWB_MODE_FLUORESCENT,
-            CaptureRequest.CONTROL_AWB_MODE_SHADE
+        val WB_MODE_VALUES = arrayOf(
+            WhiteBalanceMode.AUTO,
+            WhiteBalanceMode.DAYLIGHT,
+            WhiteBalanceMode.CLOUDY,
+            WhiteBalanceMode.INCANDESCENT,
+            WhiteBalanceMode.FLUORESCENT,
+            WhiteBalanceMode.SHADE
         )
 
         val SELF_TIMER_SECONDS = intArrayOf(0, 2, 5, 10)
@@ -194,6 +194,7 @@ class CameraController(
      */
     fun applyPreviewSettings(settings: CaptureSettings) {
         val cam = camera ?: return
+        applyFocusControl(settings)
         Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
             buildOptionsForMode(settings, forCapture = false)
     }
@@ -201,6 +202,7 @@ class CameraController(
     /** Applies the full (unclamped) settings for a still capture. */
     fun applyFullSettingsForCapture(settings: CaptureSettings) {
         val cam = camera ?: return
+        applyFocusControl(settings)
         Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
             buildOptionsForMode(settings, forCapture = true)
     }
@@ -211,6 +213,7 @@ class CameraController(
      */
     fun applyBulbExposure(exposureNs: Long, settings: CaptureSettings) {
         val cam = camera ?: return
+        applyFocusControl(settings)
         val iso = ISO_VALUES[settings.isoIndex]
         Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
             buildManualOptions(exposureNs, iso, settings)
@@ -222,8 +225,27 @@ class CameraController(
      */
     fun applyOverrideSettings(exposureNs: Long, iso: Int, settings: CaptureSettings) {
         val cam = camera ?: return
+        applyFocusControl(settings)
         Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
             buildManualOptions(exposureNs, iso, settings)
+    }
+
+    /**
+     * Handles autofocus using the CameraX [androidx.camera.core.CameraControl] API.
+     *
+     * When [CaptureSettings.isAfEnabled] is `true`, [androidx.camera.core.CameraControl.cancelFocusAndMetering]
+     * releases any tap-to-focus lock and restores the camera's default continuous-AF behaviour —
+     * no Camera2 interop is needed for this path.
+     *
+     * When [CaptureSettings.isAfEnabled] is `false`, focus is controlled manually via
+     * `CONTROL_AF_MODE_OFF` + `LENS_FOCUS_DISTANCE` in the Camera2 interop options built by
+     * [buildManualOptions].
+     */
+    private fun applyFocusControl(settings: CaptureSettings) {
+        val cam = camera ?: return
+        if (settings.isAfEnabled) {
+            cam.cameraControl.cancelFocusAndMetering()
+        }
     }
 
     // ─── Capture ──────────────────────────────────────────────────────────────
@@ -308,8 +330,8 @@ class CameraController(
         exposureNs: Long,
         iso: Int,
         settings: CaptureSettings
-    ): CaptureRequestOptions =
-        CaptureRequestOptions.Builder()
+    ): CaptureRequestOptions {
+        val builder = CaptureRequestOptions.Builder()
             .setCaptureRequestOption(
                 CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF
             )
@@ -321,16 +343,20 @@ class CameraController(
             .setCaptureRequestOption(
                 CaptureRequest.SENSOR_FRAME_DURATION, exposureNs + 1_000_000L
             )
-            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, settings.wbMode)
-            .setCaptureRequestOption(
-                CaptureRequest.CONTROL_AF_MODE,
-                if (settings.isAfEnabled) CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-                else CaptureRequest.CONTROL_AF_MODE_OFF
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, settings.wbMode.awbValue)
+        // Manual focus: let Camera2 interop lock AF off and set focus distance.
+        // When AF is enabled, focus is handled by CameraX CameraControl (cancelFocusAndMetering),
+        // so no AF-related Camera2 options are needed.
+        if (!settings.isAfEnabled) {
+            builder.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF
             )
-            .setCaptureRequestOption(
+            builder.setCaptureRequestOption(
                 CaptureRequest.LENS_FOCUS_DISTANCE, settings.focusDistance
             )
-            .build()
+        }
+        return builder.build()
+    }
 
     private fun buildProgramOptions(settings: CaptureSettings): CaptureRequestOptions =
         CaptureRequestOptions.Builder()
@@ -340,15 +366,8 @@ class CameraController(
             .setCaptureRequestOption(
                 CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO
             )
-            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, settings.wbMode)
-            .setCaptureRequestOption(
-                CaptureRequest.CONTROL_AF_MODE,
-                if (settings.isAfEnabled) CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-                else CaptureRequest.CONTROL_AF_MODE_OFF
-            )
-            .setCaptureRequestOption(
-                CaptureRequest.LENS_FOCUS_DISTANCE, settings.focusDistance
-            )
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, settings.wbMode.awbValue)
+            // AF is handled by CameraX CameraControl (cancelFocusAndMetering in applyFocusControl).
             .build()
 
     /**

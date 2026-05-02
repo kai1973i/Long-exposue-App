@@ -1,6 +1,5 @@
 package com.longexposure.app
 
-import android.hardware.camera2.CaptureRequest
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +17,8 @@ data class CaptureSettings(
     val exposureIndex: Int = 5,
     /** Index into [CameraController.ISO_VALUES]. */
     val isoIndex: Int = 0,
-    /** One of the [CaptureRequest.CONTROL_AWB_MODE_*] constants. */
-    val wbMode: Int = CaptureRequest.CONTROL_AWB_MODE_AUTO,
+    /** Selected white balance preset. */
+    val wbMode: WhiteBalanceMode = WhiteBalanceMode.AUTO,
     /** Focus distance in diopters (0 = infinity). */
     val focusDistance: Float = 0.0f,
     /** Index into [CameraController.APERTURE_VALUES]. */
