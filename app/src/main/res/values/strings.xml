@@ -22,9 +22,9 @@
         <item>Auto</item>
         <item>Daylight</item>
         <item>Cloudy</item>
-        <item>Tungsten</item>
+        <item>Incandescent</item>
         <item>Fluorescent</item>
-        <item>Flash</item>
+        <item>Shade</item>
     </string-array>
 
     <!-- Self-timer options -->

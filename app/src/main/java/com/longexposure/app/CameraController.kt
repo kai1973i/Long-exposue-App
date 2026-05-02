@@ -81,9 +81,9 @@ class CameraController(
             CaptureRequest.CONTROL_AWB_MODE_AUTO,
             CaptureRequest.CONTROL_AWB_MODE_DAYLIGHT,
             CaptureRequest.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT,
-            CaptureRequest.CONTROL_AWB_MODE_TUNGSTEN,
+            CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT,
             CaptureRequest.CONTROL_AWB_MODE_FLUORESCENT,
-            CaptureRequest.CONTROL_AWB_MODE_FLASH
+            CaptureRequest.CONTROL_AWB_MODE_SHADE
         )
 
         val SELF_TIMER_SECONDS = intArrayOf(0, 2, 5, 10)
