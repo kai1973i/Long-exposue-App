@@ -551,7 +551,7 @@ class MainActivity : AppCompatActivity() {
     // ─── Bracketing capture ───────────────────────────────────────────────────
 
     private fun captureWithBracketing(settings: CaptureSettings, stepEv: Int) {
-        binding.tvStatus.text = getString(R.string.bracketing_status, 1)
+        binding.tvStatus.text = getString(R.string.bracketing_status, 1, 3)
         val (baseNs, baseIso) = cameraController.computeEffectiveParams(settings)
         val multipliers = listOf(
             1.0 / 2.0.pow(stepEv),   // −N EV: divide exposure by 2^N
