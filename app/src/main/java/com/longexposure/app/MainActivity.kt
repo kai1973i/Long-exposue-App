@@ -2,34 +2,34 @@ package com.longexposure.app
 
 import android.Manifest
 import android.content.ContentValues
-import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.ImageFormat
-import android.graphics.SurfaceTexture
-import android.hardware.camera2.*
-import android.hardware.camera2.params.StreamConfigurationMap
-import android.media.Image
-import android.media.ImageReader
+import android.hardware.camera2.CaptureRequest
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.HandlerThread
 import android.provider.MediaStore
 import android.util.Log
-import android.util.Size
-import android.view.Surface
-import android.view.TextureView
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.longexposure.app.databinding.ActivityMainBinding
-import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
+@OptIn(ExperimentalCamera2Interop::class)
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -61,19 +61,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var cameraExecutor: ExecutorService
 
-    private var cameraDevice: CameraDevice? = null
-    private var captureSession: CameraCaptureSession? = null
-    private var imageReader: ImageReader? = null
-
-    private lateinit var backgroundThread: HandlerThread
-    private lateinit var backgroundHandler: Handler
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var imageCapture: ImageCapture? = null
+    private var camera: Camera? = null
 
     private var selectedExposureIndex = 5  // default: 1 s
     private var selectedIsoIndex = 0        // default: ISO 100
     private var isCapturing = false
-
-    private var previewSize: Size = Size(1280, 720)
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -82,25 +78,28 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
         setupExposureSeekBar()
         setupIsoSeekBar()
         setupCaptureButton()
-    }
 
-    override fun onResume() {
-        super.onResume()
-        startBackgroundThread()
-        if (binding.textureView.isAvailable) {
-            openCamera(binding.textureView.width, binding.textureView.height)
+        if (hasCameraPermission()) {
+            startCamera()
         } else {
-            binding.textureView.surfaceTextureListener = surfaceTextureListener
+            requestCameraPermission()
         }
     }
 
-    override fun onPause() {
-        closeCamera()
-        stopBackgroundThread()
-        super.onPause()
+    override fun onDestroy() {
+        super.onDestroy()
+        // Unbind camera first so any in-flight captures are cancelled before
+        // the executor that handles their callbacks is shut down
+        cameraProvider?.unbindAll()
+        cameraProvider = null
+        imageCapture = null
+        camera = null
+        cameraExecutor.shutdown()
     }
 
     // ─── Permissions ──────────────────────────────────────────────────────────
@@ -123,7 +122,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                openCamera(binding.textureView.width, binding.textureView.height)
+                startCamera()
             } else {
                 Toast.makeText(this, R.string.camera_permission_required, Toast.LENGTH_LONG).show()
             }
@@ -144,7 +143,7 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onStartTrackingTouch(seekBar: SeekBar) {}
             override fun onStopTrackingTouch(seekBar: SeekBar) {
-                updatePreviewExposure()
+                applyPreviewExposureSettings()
             }
         })
     }
@@ -161,7 +160,7 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onStartTrackingTouch(seekBar: SeekBar) {}
             override fun onStopTrackingTouch(seekBar: SeekBar) {
-                updatePreviewExposure()
+                applyPreviewExposureSettings()
             }
         })
     }
@@ -180,306 +179,180 @@ class MainActivity : AppCompatActivity() {
         binding.tvIsoValue.text = "ISO ${ISO_VALUES[selectedIsoIndex]}"
     }
 
-    // ─── Background Thread ────────────────────────────────────────────────────
+    // ─── Camera Setup ─────────────────────────────────────────────────────────
 
-    private fun startBackgroundThread() {
-        backgroundThread = HandlerThread("CameraBackground").also { it.start() }
-        backgroundHandler = Handler(backgroundThread.looper)
-    }
-
-    private fun stopBackgroundThread() {
-        backgroundThread.quitSafely()
-        try {
-            backgroundThread.join()
-        } catch (e: InterruptedException) {
-            Log.e(TAG, "Background thread interrupted", e)
-        }
-    }
-
-    // ─── Camera Lifecycle ─────────────────────────────────────────────────────
-
-    private val surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-            openCamera(width, height)
-        }
-        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = true
-        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-    }
-
-    private fun openCamera(width: Int, height: Int) {
-        if (!hasCameraPermission()) {
-            requestCameraPermission()
-            return
-        }
-
-        val manager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val cameraId = selectBackCamera(manager) ?: run {
-            Toast.makeText(this, R.string.no_camera_found, Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        try {
-            val characteristics = manager.getCameraCharacteristics(cameraId)
-            val map: StreamConfigurationMap = characteristics.get(
-                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
-            ) ?: return
-
-            // Pick a suitable preview / capture size
-            previewSize = chooseOptimalSize(
-                map.getOutputSizes(SurfaceTexture::class.java), width, height
-            )
-
-            val captureSize = chooseOptimalSize(
-                map.getOutputSizes(ImageFormat.JPEG), 1920, 1080
-            )
-
-            imageReader = ImageReader.newInstance(
-                captureSize.width, captureSize.height, ImageFormat.JPEG, 2
-            ).apply {
-                setOnImageAvailableListener(onImageAvailable, backgroundHandler)
+    /**
+     * Obtains the [ProcessCameraProvider] and binds [Preview] and [ImageCapture] use cases.
+     * Called once at startup (or after permission is granted).
+     * All manual exposure/ISO settings are managed via [Camera2CameraControl.captureRequestOptions]
+     * after binding, avoiding the need to rebuild use cases when settings change.
+     */
+    private fun startCamera() {
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            val provider: ProcessCameraProvider
+            try {
+                provider = future.get()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get CameraProvider", e)
+                Toast.makeText(this, R.string.no_camera_found, Toast.LENGTH_SHORT).show()
+                return@addListener
             }
+            cameraProvider = provider
 
-            manager.openCamera(cameraId, cameraStateCallback, backgroundHandler)
-        } catch (e: CameraAccessException) {
-            Log.e(TAG, "openCamera failed", e)
-        }
-    }
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(binding.previewView.surfaceProvider)
+            }
+            val capture = ImageCapture.Builder()
+                .setJpegQuality(95)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .build()
 
-    private fun selectBackCamera(manager: CameraManager): String? {
-        for (id in manager.cameraIdList) {
-            val facing = manager.getCameraCharacteristics(id)
-                .get(CameraCharacteristics.LENS_FACING)
-            if (facing == CameraCharacteristics.LENS_FACING_BACK) return id
-        }
-        return manager.cameraIdList.firstOrNull()
-    }
-
-    private val cameraStateCallback = object : CameraDevice.StateCallback() {
-        override fun onOpened(camera: CameraDevice) {
-            cameraDevice = camera
-            createCameraPreviewSession()
-        }
-        override fun onDisconnected(camera: CameraDevice) {
-            camera.close()
-            cameraDevice = null
-        }
-        override fun onError(camera: CameraDevice, error: Int) {
-            camera.close()
-            cameraDevice = null
-            Log.e(TAG, "Camera device error: $error")
-        }
-    }
-
-    private fun createCameraPreviewSession() {
-        val camera = cameraDevice ?: return
-        try {
-            val texture = binding.textureView.surfaceTexture ?: return
-            texture.setDefaultBufferSize(previewSize.width, previewSize.height)
-            val previewSurface = Surface(texture)
-            val readerSurface = imageReader?.surface ?: return
-
-            val previewRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                addTarget(previewSurface)
-                applyManualExposureSettings(this, isPreview = true)
-            }.build()
-
-            @Suppress("DEPRECATION")
-            camera.createCaptureSession(
-                listOf(previewSurface, readerSurface),
-                object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(session: CameraCaptureSession) {
-                        captureSession = session
-                        try {
-                            session.setRepeatingRequest(previewRequest, null, backgroundHandler)
-                        } catch (e: CameraAccessException) {
-                            Log.e(TAG, "setRepeatingRequest failed", e)
-                        }
-                    }
-                    override fun onConfigureFailed(session: CameraCaptureSession) {
-                        Log.e(TAG, "Session configuration failed")
-                    }
-                },
-                backgroundHandler
-            )
-        } catch (e: CameraAccessException) {
-            Log.e(TAG, "createCameraPreviewSession failed", e)
-        }
-    }
-
-    private fun closeCamera() {
-        captureSession?.close(); captureSession = null
-        cameraDevice?.close(); cameraDevice = null
-        imageReader?.close(); imageReader = null
+            try {
+                provider.unbindAll()
+                camera = provider.bindToLifecycle(
+                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture
+                )
+                imageCapture = capture
+                // Apply initial clamped preview exposure after binding
+                applyPreviewExposureSettings()
+            } catch (e: Exception) {
+                Log.e(TAG, "Use case binding failed", e)
+                Toast.makeText(this, R.string.no_camera_found, Toast.LENGTH_SHORT).show()
+            }
+        }, ContextCompat.getMainExecutor(this))
     }
 
     // ─── Exposure / ISO helpers ───────────────────────────────────────────────
 
     /**
-     * Applies manual exposure settings to a capture request builder.
-     * For the live preview we clamp the exposure to ≤ 500 ms so the viewfinder
-     * remains usable; for the still capture we use the full selected value.
+     * Builds a [CaptureRequestOptions] containing manual exposure settings.
+     *
+     * @param exposureNs the sensor exposure time in nanoseconds
+     * @param iso        the sensor sensitivity (ISO)
      */
-    private fun applyManualExposureSettings(
-        builder: CaptureRequest.Builder,
-        isPreview: Boolean
-    ) {
+    private fun buildCaptureRequestOptions(exposureNs: Long, iso: Int): CaptureRequestOptions =
+        CaptureRequestOptions.Builder()
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
+            .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposureNs)
+            .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+            .setCaptureRequestOption(CaptureRequest.SENSOR_FRAME_DURATION, exposureNs + 1_000_000L)
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+            .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f)
+            .build()
+
+    /**
+     * Pushes the currently selected (clamped) exposure and ISO to the live preview
+     * via [Camera2CameraControl.captureRequestOptions].
+     *
+     * The preview exposure is clamped to ≤ 500 ms so the viewfinder remains usable
+     * for long-exposure settings. Called on seekbar release and after initial binding.
+     */
+    private fun applyPreviewExposureSettings() {
+        val cam = camera ?: return
         val exposureNs = EXPOSURE_TIMES_NS[selectedExposureIndex]
         val iso = ISO_VALUES[selectedIsoIndex]
-
-        // Disable AE so our manual values are used
-        builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-        builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
-
-        // For the preview, cap exposure so the screen stays responsive
-        val previewExposureNs = if (isPreview) minOf(exposureNs, 500_000_000L) else exposureNs
-        builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, previewExposureNs)
-        builder.set(CaptureRequest.SENSOR_SENSITIVITY, iso)
-
-        // Fixed frame duration that fits the exposure time (add a small overhead)
-        builder.set(
-            CaptureRequest.SENSOR_FRAME_DURATION,
-            previewExposureNs + 1_000_000L
-        )
-
-        // Disable other auto controls
-        builder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-        builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-        builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f)  // hyperfocal
+        // Cap the live-preview exposure so the viewfinder stays responsive
+        val previewExposureNs = minOf(exposureNs, 500_000_000L)
+        Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
+            buildCaptureRequestOptions(previewExposureNs, iso)
     }
 
-    private fun updatePreviewExposure() {
-        val session = captureSession ?: return
-        val camera = cameraDevice ?: return
-        val texture = binding.textureView.surfaceTexture ?: return
-        try {
-            texture.setDefaultBufferSize(previewSize.width, previewSize.height)
-            val previewSurface = Surface(texture)
-            val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                addTarget(previewSurface)
-                applyManualExposureSettings(this, isPreview = true)
-            }.build()
-            session.setRepeatingRequest(request, null, backgroundHandler)
-        } catch (e: CameraAccessException) {
-            Log.e(TAG, "updatePreviewExposure failed", e)
-        }
+    /**
+     * Temporarily switches [Camera2CameraControl.captureRequestOptions] to the full
+     * (unclamped) selected exposure and ISO so that the still capture uses the correct
+     * settings. The preview clamped settings are restored in the capture callback.
+     */
+    private fun applyFullExposureForCapture() {
+        val cam = camera ?: return
+        val exposureNs = EXPOSURE_TIMES_NS[selectedExposureIndex]
+        val iso = ISO_VALUES[selectedIsoIndex]
+        Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
+            buildCaptureRequestOptions(exposureNs, iso)
     }
 
     // ─── Capture ──────────────────────────────────────────────────────────────
 
+    /** Resets the button/status UI and restores preview exposure after a capture ends. */
+    private fun handleCaptureEnd(succeeded: Boolean) {
+        isCapturing = false
+        binding.btnCapture.isEnabled = true
+        binding.tvStatus.text = getString(
+            if (succeeded) R.string.image_saved else R.string.capture_failed
+        )
+        applyPreviewExposureSettings()
+    }
+
     private fun captureImage() {
-        val session = captureSession ?: return
-        val camera = cameraDevice ?: return
-        val reader = imageReader ?: return
+        val capture = imageCapture ?: return
 
         isCapturing = true
-        runOnUiThread {
-            binding.btnCapture.isEnabled = false
-            binding.tvStatus.text = getString(
-                R.string.capturing_status, EXPOSURE_LABELS[selectedExposureIndex]
-            )
-        }
+        binding.btnCapture.isEnabled = false
+        binding.tvStatus.text = getString(R.string.capturing_status, EXPOSURE_LABELS[selectedExposureIndex])
 
-        try {
-            val captureRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                addTarget(reader.surface)
-                applyManualExposureSettings(this, isPreview = false)
-                set(CaptureRequest.JPEG_QUALITY, 95.toByte())
-            }.build()
-
-            session.capture(captureRequest, object : CameraCaptureSession.CaptureCallback() {
-                override fun onCaptureCompleted(
-                    session: CameraCaptureSession,
-                    request: CaptureRequest,
-                    result: TotalCaptureResult
-                ) {
-                    Log.d(TAG, "Capture completed")
-                }
-                override fun onCaptureFailed(
-                    session: CameraCaptureSession,
-                    request: CaptureRequest,
-                    failure: CaptureFailure
-                ) {
-                    isCapturing = false
-                    runOnUiThread {
-                        binding.btnCapture.isEnabled = true
-                        binding.tvStatus.text = getString(R.string.capture_failed)
-                    }
-                    Log.e(TAG, "Capture failed: ${failure.reason}")
-                }
-            }, backgroundHandler)
-        } catch (e: CameraAccessException) {
-            isCapturing = false
-            runOnUiThread {
-                binding.btnCapture.isEnabled = true
-                binding.tvStatus.text = getString(R.string.capture_failed)
-            }
-            Log.e(TAG, "captureImage failed", e)
-        }
-    }
-
-    private val onImageAvailable = ImageReader.OnImageAvailableListener { reader ->
-        val image: Image = reader.acquireLatestImage() ?: return@OnImageAvailableListener
-        try {
-            saveImageToGallery(image)
-        } finally {
-            image.close()
-            isCapturing = false
-            runOnUiThread {
-                binding.btnCapture.isEnabled = true
-                binding.tvStatus.text = getString(R.string.image_saved)
-            }
-        }
-    }
-
-    // ─── Save to Gallery ──────────────────────────────────────────────────────
-
-    private fun saveImageToGallery(image: Image) {
-        val buffer = image.planes[0].buffer
-        val bytes = ByteArray(buffer.remaining())
-        buffer.get(bytes)
+        // Switch to full (unclamped) exposure for the still capture
+        applyFullExposureForCapture()
 
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val filename = "LE_${timestamp}.jpg"
 
-        val outputStream: OutputStream?
+        val outputOptions: ImageCapture.OutputFileOptions
+        // Pre-Q: holds the target File so the callback can notify the media scanner
+        var outputFileForScanner: java.io.File? = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/LongExposure")
             }
-            val uri = contentResolver.insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
-            )
-            outputStream = uri?.let { contentResolver.openOutputStream(it) }
+            outputOptions = ImageCapture.OutputFileOptions.Builder(
+                contentResolver,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ).build()
         } else {
             @Suppress("DEPRECATION")
             val dir = android.os.Environment.getExternalStoragePublicDirectory(
                 android.os.Environment.DIRECTORY_DCIM
             )
-            val folder = java.io.File(dir, "LongExposure").also { it.mkdirs() }
-            val file = java.io.File(folder, filename)
-            outputStream = java.io.FileOutputStream(file)
-            // Notify gallery on older Android using MediaScannerConnection
-            android.media.MediaScannerConnection.scanFile(
-                this,
-                arrayOf(file.absolutePath),
-                arrayOf("image/jpeg"),
-                null
-            )
+            val folder = java.io.File(dir, "LongExposure")
+            if (!folder.exists()) {
+                if (!folder.mkdirs()) {
+                    Log.e(TAG, "Failed to create output folder: ${folder.absolutePath}")
+                    handleCaptureEnd(succeeded = false)
+                    return
+                }
+            }
+            val outputFile = java.io.File(folder, filename)
+            outputFileForScanner = outputFile
+            outputOptions = ImageCapture.OutputFileOptions.Builder(outputFile).build()
         }
 
-        outputStream?.use { it.write(bytes) }
-        Log.d(TAG, "Image saved: $filename")
-    }
+        capture.takePicture(
+            outputOptions,
+            cameraExecutor,
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    Log.d(TAG, "Image saved: $filename")
+                    // On pre-Q devices, notify the media scanner using the known file path
+                    outputFileForScanner?.let { file ->
+                        android.media.MediaScannerConnection.scanFile(
+                            this@MainActivity,
+                            arrayOf(file.absolutePath),
+                            arrayOf("image/jpeg"),
+                            null
+                        )
+                    }
+                    runOnUiThread { handleCaptureEnd(succeeded = true) }
+                }
 
-    // ─── Size selection ───────────────────────────────────────────────────────
-
-    private fun chooseOptimalSize(choices: Array<Size>, maxWidth: Int, maxHeight: Int): Size {
-        val suitable = choices.filter {
-            it.width <= maxWidth * 2 && it.height <= maxHeight * 2
-        }.sortedByDescending { it.width.toLong() * it.height }
-        return suitable.firstOrNull() ?: choices.first()
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "Image capture failed: ${exception.message}", exception)
+                    runOnUiThread { handleCaptureEnd(succeeded = false) }
+                }
+            }
+        )
     }
 }
