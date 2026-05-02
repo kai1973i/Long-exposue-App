@@ -1,19 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Long Exposure Cam</string>
+    <string name="app_name">DSLR Cam</string>
 
-    <!-- Labels -->
-    <string name="label_exposure">Exposure Time</string>
+    <!-- Control labels -->
+    <string name="label_exposure">Exposure</string>
     <string name="label_iso">ISO</string>
+    <string name="label_aperture">Aperture (Virtual)</string>
+    <string name="label_white_balance">White Balance</string>
+    <string name="label_focus">Focus</string>
+    <string name="label_self_timer">Self-Timer</string>
+    <string name="label_bracketing">AEB</string>
+
+    <!-- Mode descriptions -->
+    <string name="mode_program">Program — auto exposure and ISO</string>
+    <string name="mode_av">Av — pick virtual f-stop; shutter speed computed</string>
+    <string name="mode_tv">Tv — pick shutter speed; ISO auto-selected</string>
+    <string name="mode_manual">Manual — full control</string>
+
+    <!-- White balance presets -->
+    <string-array name="wb_labels">
+        <item>Auto</item>
+        <item>Daylight</item>
+        <item>Cloudy</item>
+        <item>Tungsten</item>
+        <item>Fluorescent</item>
+        <item>Flash</item>
+    </string-array>
+
+    <!-- Self-timer options -->
+    <string-array name="timer_labels">
+        <item>Off</item>
+        <item>2 s</item>
+        <item>5 s</item>
+        <item>10 s</item>
+    </string-array>
+
+    <!-- Bracketing options -->
+    <string-array name="bracketing_labels">
+        <item>Off</item>
+        <item>±1 EV</item>
+        <item>±2 EV</item>
+    </string-array>
 
     <!-- Buttons -->
     <string name="btn_capture">📷  Capture</string>
+    <string name="btn_af_off">AF</string>
+    <string name="btn_af_on">AF ✓</string>
+    <string name="btn_grid">⊞</string>
+    <string name="btn_histogram">▥</string>
 
     <!-- Status messages -->
-    <string name="status_ready">Ready — adjust exposure and ISO, then capture</string>
-    <string name="capturing_status">Capturing… (%1$s exposure)</string>
-    <string name="image_saved">✓ Image saved to DCIM/LongExposure</string>
+    <string name="status_ready">Ready</string>
+    <string name="capturing_status">Capturing… (%1$s)</string>
+    <string name="timer_countdown">Capturing in %1$d s…</string>
+    <string name="timer_cancelled">Timer cancelled</string>
+    <string name="bulb_elapsed">Bulb: %.1f s — release to capture</string>
+    <string name="bracketing_status">Capturing bracket %1$d / 3…</string>
+    <string name="image_saved">✓ Saved to DCIM/LongExposure</string>
+    <string name="brackets_saved">✓ 3 bracketed images saved</string>
     <string name="capture_failed">✗ Capture failed — try again</string>
+
+    <!-- Info bar labels -->
+    <string name="info_ev">EV %.1f</string>
 
     <!-- Errors -->
     <string name="camera_permission_required">Camera permission is required to use this app</string>

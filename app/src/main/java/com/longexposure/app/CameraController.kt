@@ -214,6 +214,16 @@ class CameraController(
             buildManualOptions(exposureNs, iso, settings)
     }
 
+    /**
+     * Applies a fully explicit override of [exposureNs] and [iso] (e.g. for AEB bracketing)
+     * while keeping all other parameters from [settings].
+     */
+    fun applyOverrideSettings(exposureNs: Long, iso: Int, settings: CaptureSettings) {
+        val cam = camera ?: return
+        Camera2CameraControl.from(cam.cameraControl).captureRequestOptions =
+            buildManualOptions(exposureNs, iso, settings)
+    }
+
     // ─── Capture ──────────────────────────────────────────────────────────────
 
     /** Fires a single still capture; results are delivered to [callback] on [executor]. */
