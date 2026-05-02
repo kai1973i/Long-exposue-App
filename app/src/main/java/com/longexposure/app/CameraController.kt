@@ -46,6 +46,8 @@ class CameraController(
         const val PREVIEW_MAX_EXPOSURE_NS = 500_000_000L
         /** Target luminosity value used for auto-ISO in Shutter Priority mode. */
         private const val TARGET_LV = 8.0
+        /** Minimum interval between histogram updates to avoid thrashing the UI thread. */
+        private const val HISTOGRAM_UPDATE_INTERVAL_MS = 1_000L
 
         val EXPOSURE_TIMES_NS = longArrayOf(
             33_333_333L,      // 1/30 s
@@ -374,14 +376,17 @@ class CameraController(
         override fun analyze(image: ImageProxy) {
             try {
                 val now = System.currentTimeMillis()
-                if (now - lastUpdateMs < 1_000L) return
+                // Throttle to at most once per HISTOGRAM_UPDATE_INTERVAL_MS to avoid
+                // excessive Bitmap allocations and UI-thread posting overhead.
+                if (now - lastUpdateMs < HISTOGRAM_UPDATE_INTERVAL_MS) return
                 lastUpdateMs = now
 
                 val histogram = IntArray(256)
                 val buffer = image.planes[0].buffer  // Y plane (luminance)
                 val data = ByteArray(buffer.remaining())
                 buffer.get(data)
-                // Sample every 4th pixel for performance
+                // Sample every 4th pixel: retains enough statistical accuracy for a
+                // smooth histogram while reducing per-frame work by 4×.
                 var i = 0
                 while (i < data.size) {
                     histogram[data[i].toInt() and 0xFF]++

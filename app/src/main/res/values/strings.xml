@@ -55,7 +55,7 @@
     <string name="timer_countdown">Capturing in %1$d s…</string>
     <string name="timer_cancelled">Timer cancelled</string>
     <string name="bulb_elapsed">Bulb: %.1f s — release to capture</string>
-    <string name="bracketing_status">Capturing bracket %1$d / 3…</string>
+    <string name="bracketing_status">Capturing bracket %1$d / %2$d…</string>
     <string name="image_saved">✓ Saved to DCIM/LongExposure</string>
     <string name="brackets_saved">✓ 3 bracketed images saved</string>
     <string name="capture_failed">✗ Capture failed — try again</string>

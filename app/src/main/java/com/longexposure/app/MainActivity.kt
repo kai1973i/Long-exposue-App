@@ -36,6 +36,7 @@ import com.longexposure.app.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.pow
 
 @OptIn(ExperimentalCamera2Interop::class)
 class MainActivity : AppCompatActivity() {
@@ -420,7 +421,7 @@ class MainActivity : AppCompatActivity() {
             cameraController.computeEffectiveParams(settings)
         } else {
             Pair(EXPOSURE_TIMES_NS[settings.exposureIndex.coerceAtMost(EXPOSURE_TIMES_NS.size - 1)],
-                 ISO_VALUES[settings.isoIndex])
+                 ISO_VALUES[settings.isoIndex.coerceAtMost(ISO_VALUES.size - 1)])
         }
 
         // Exposure label
@@ -555,9 +556,9 @@ class MainActivity : AppCompatActivity() {
         binding.tvStatus.text = getString(R.string.bracketing_status, 1)
         val (baseNs, baseIso) = cameraController.computeEffectiveParams(settings)
         val multipliers = listOf(
-            1.0 / (1 shl stepEv),  // −N EV
-            1.0,                    //  0 EV
-            (1 shl stepEv).toDouble() // +N EV
+            1.0 / 2.0.pow(stepEv),   // −N EV: divide exposure by 2^N
+            1.0,                     //  0 EV: base exposure unchanged
+            2.0.pow(stepEv)          // +N EV: multiply exposure by 2^N
         )
         val suffixes = listOf("-${stepEv}EV", "0EV", "+${stepEv}EV")
         val exposures = multipliers.map { mult ->
@@ -580,7 +581,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        binding.tvStatus.text = getString(R.string.bracketing_status, index + 1)
+        binding.tvStatus.text = getString(R.string.bracketing_status, index + 1, exposures.size)
         cameraController.applyOverrideSettings(exposures[index], iso, settings)
 
         val (outputOptions, scanFile) = try {
